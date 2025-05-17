@@ -44,4 +44,4 @@
 
 ## Команда  
 - Разработчик: Эмиль Мурзин [@EmMUR25](https://github.com/EmMUR25)
-- Тестировщик: Мелуним Зир [@MyDogHan](https://github.com/MyDogHan)
+- Тестировщик: Джон Кармак [@MyDogHan](https://github.com/MyDogHan)
