@@ -43,5 +43,5 @@
 - Среда: Anaconda (менеджмент зависимостей)  
 
 ## Команда  
-- Разработчик: Эмиль Мурзин [@EmMUR25](https://github.com/EmMUR25)
-- Тестировщик: Анастасия Галенчик [@AnastasiaGalenchik](https://github.com/AnastasiaGalenchik)
+- Разработчик модели МО: Эмиль Мурзин [@EmMUR25](https://github.com/EmMUR25)
+- Разработчик Веб: Анастасия Галенчик [@AnastasiaGalenchik](https://github.com/AnastasiaGalenchik)
