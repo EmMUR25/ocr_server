@@ -44,4 +44,4 @@
 
 ## Команда  
 - Разработчик: Эмиль Мурзин [@EmMUR25](https://github.com/EmMUR25)
-- Тестировщик: Мурзин Эмиль Второй [@AnastasiaGalenchik](https://github.com/AnastasiaGalenchik)
+- Тестировщик: Анастасия Галенчик [@AnastasiaGalenchik](https://github.com/AnastasiaGalenchik)
