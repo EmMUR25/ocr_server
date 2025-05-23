@@ -4,7 +4,8 @@
 pip install easyocr
 
 Пример кода:
-'''python
+''' python
+
 import easyocr
 
 reader = easyocr.Reader(['ru', 'en'])  # Инициализация для рус/англ
