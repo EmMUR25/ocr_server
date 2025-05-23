@@ -1,0 +1,15 @@
+## Инструкция запуска и пример кода
+Установка (одна команда):
+
+pip install easyocr
+
+Пример кода:
+```python
+
+import easyocr
+
+reader = easyocr.Reader(['ru', 'en'])  # Инициализация для рус/англ
+result = reader.readtext('image.png')  # Распознавание
+for (bbox, text, confidence) in result:
+    print(f"Текст: {text} (точность: {confidence:.2f})")
+```
