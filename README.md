@@ -10,3 +10,5 @@
 3. Жань Дунао, [@BRONZTRING](https://github.com/BRONZTRING)
  
 [Техническое задание](TECHNICAL_SPECIFICATION.md)  
+
+[Инструкция запуска](instruction.md)
