@@ -1,3 +1,5 @@
+import easyocr
+
 # 1. Настройки
 IMAGE_PATH = input('Введите путь к файлу')  # Путь к вашему PNG-файлу
 OUTPUT_TXT = "output.txt"  # Файл для сохранения результата
