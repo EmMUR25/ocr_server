@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Загрузите изображение с текстом</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Загрузите изображение с текстом</h1>
+    
+    <div class="description">
+        Бесплатный онлайн-преобразователь изображений в текст.
+    </div>
+
+    <div class="divider"></div>
+
+    <label for="imageInput">
+        <div class="upload-container" id="dropArea">
+            <div class="upload-icon">+</div>
+            <div class="upload-text">Загрузить изображение</div>
+            <div class="drag-drop">Перетащите/вставьте (Ctrl+V)</div>
+        </div>
+    </label>
+    <input type="file" id="imageInput" accept="image/*,.pdf">
+    
+    <div id="previewContainer">
+        <h3>Предпросмотр изображения:</h3>
+        <img id="imagePreview" alt="Предпросмотр">
+    </div>
+    
+    <div class="supported-formats">
+        Поддерживаемые форматы: PNG, JPG, JPEG, PDF
+    </div>
+
+    <div id="result"></div>
+
+<body>
+</html>
