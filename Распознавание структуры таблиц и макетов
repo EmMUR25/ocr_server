@@ -1,0 +1,158 @@
+import numpy as np
+# Assuming 'reader' from EasyOCR is initialized as in your project
+# import easyocr
+# reader = easyocr.Reader(['ru', 'en'])
+
+def group_results_by_line(ocr_results, y_tolerance=10):
+    """Groups EasyOCR results by text lines based on y-coordinates of bounding boxes."""
+    if not ocr_results:
+        return []
+    
+    # Sort results by top y-coordinate, then by left x-coordinate
+    # Format of each item in ocr_results: (bbox, text, confidence)
+    # bbox: [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]]
+    ocr_results.sort(key=lambda item: (item[0][0][1], item[0][0][0]))
+    
+    lines = []
+    current_line = []
+    if not ocr_results: return lines
+
+    # Initialize with the first result
+    current_line.append(ocr_results[0])
+    last_y_avg = (ocr_results[0][0][0][1] + ocr_results[0][3][1]) / 2 # Avg y of first box
+
+    for i in range(1, len(ocr_results)):
+        item = ocr_results[i]
+        bbox = item[0]
+        current_y_avg = (bbox[0][1] + bbox[3][1]) / 2 # Avg y of current box (top-left y + bottom-left y)/2
+
+        # Check if current item is on the same line (within y_tolerance)
+        # and also consider if it significantly overlaps horizontally with the line concept
+        if abs(current_y_avg - last_y_avg) < y_tolerance:
+            current_line.append(item)
+        else:
+            # New line started
+            if current_line:
+                # Sort items within the completed line by x-coordinate
+                current_line.sort(key=lambda x: x[0][0][0])
+                lines.append(current_line)
+            current_line = [item]
+            last_y_avg = current_y_avg
+            
+    if current_line: # Add the last line
+        current_line.sort(key=lambda x: x[0][0][0])
+        lines.append(current_line)
+        
+    return lines
+
+def detect_table_structure_from_lines(lines_of_text, x_tolerance_ratio=0.3):
+    """
+    Attempts to infer a simple table structure from lines of OCR'd text.
+    This is a heuristic approach.
+    lines_of_text: list of lines, where each line is a list of OCR items (bbox, text, conf).
+    x_tolerance_ratio: How much horizontal overlap is allowed for items to be in same 'column idea'.
+    """
+    if not lines_of_text:
+        return {"type": "paragraphs", "data": [" ".join([item[1] for item in line]) for line in lines_of_text]}
+
+    # Heuristic: If lines have a somewhat consistent number of elements,
+    # and elements align vertically, it might be a table.
+
+    # 1. Determine potential column centers/boundaries based on first few lines
+    # This is a very simplified approach. Real table detection is much harder.
+    
+    potential_table_rows = []
+    avg_items_per_line = np.mean([len(line) for line in lines_of_text])
+    std_items_per_line = np.std([len(line) for line in lines_of_text])
+
+    # Simple heuristic: if items per line are fairly consistent and > 1, suspect table
+    if avg_items_per_line > 1.5 and std_items_per_line < avg_items_per_line / 2:
+        # Try to align columns based on x-coordinates
+        # Find median number of columns
+        num_cols_candidate = int(round(avg_items_per_line))
+        if num_cols_candidate <=1: # Not enough columns for a table
+             return {"type": "paragraphs", "data": [" ".join([item[1] for item in line]) for line in lines_of_text]}
+
+
+        for line_items in lines_of_text:
+            row_texts = []
+            # Simplistic: just take text from each item in the line
+            # A more robust way would be to align items to detected column boundaries
+            if len(line_items) >= num_cols_candidate: # Take first N items
+                 row_texts = [item[1] for item in line_items[:num_cols_candidate]]
+            elif len(line_items) > 0 : # Pad if fewer items than expected columns
+                 row_texts = [item[1] for item in line_items] + [''] * (num_cols_candidate - len(line_items))
+            else: # Empty line or no items
+                row_texts = [''] * num_cols_candidate
+
+            if any(txt.strip() for txt in row_texts): # Add row if not completely empty
+                potential_table_rows.append(row_texts)
+
+        if len(potential_table_rows) > 1 : # Need at least 2 rows for a 'table'
+            return {"type": "table", "header": [], "rows": potential_table_rows, "message": "Heuristic table detection"}
+        
+    # Default to paragraph structure if no clear table found
+    paragraphs = [" ".join([item[1] for item in line]) for line in lines_of_text]
+    return {"type": "paragraphs", "data": paragraphs}
+
+
+# Example Usage:
+if __name__ == '__main__':
+    # Dummy EasyOCR output (replace with actual reader.readtext('image.png') output)
+    # bbox format: [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]]
+    dummy_ocr_results = [
+        ([[50, 50], [100, 50], [100, 70], [50, 70]], "Name", 0.9),
+        ([[150, 52], [200, 52], [200, 72], [150, 72]], "Age", 0.88),
+        ([[250, 51], [320, 51], [320, 71], [250, 71]], "Country", 0.92),
+
+        ([[48, 80], [102, 80], [102, 100], [48, 100]], "Alice", 0.95),
+        ([[155, 83], [195, 83], [195, 103], [155, 103]], "30", 0.99),
+        ([[245, 81], [325, 81], [325, 101], [245, 101]], "USA", 0.91),
+        
+        ([[55, 110], [95, 110], [95, 130], [55, 130]], "Bob", 0.93),
+        # Missing "Age" for Bob intentionally to test padding/robustness
+        ([[255, 112], [315, 112], [315, 132], [255, 132]], "Canada", 0.89),
+
+        ([[10, 150], [300, 150], [300, 170], [10, 170]], "This is a normal sentence on its own line.", 0.85)
+    ]
+
+    print("Original OCR results (count):", len(dummy_ocr_results))
+    grouped_lines = group_results_by_line(dummy_ocr_results, y_tolerance=10) # Adjust tolerance as needed
+    
+    print("\nGrouped lines of text:")
+    for i, line in enumerate(grouped_lines):
+        line_text = " | ".join([item[1] for item in line])
+        print(f"Line {i+1}: {line_text}")
+
+    structured_output = detect_table_structure_from_lines(grouped_lines)
+    
+    print("\nStructured Output:")
+    if structured_output["type"] == "table":
+        print("Detected Table:")
+        if structured_output.get("header"):
+             print("Header:", " | ".join(structured_output["header"]))
+        for row_idx, row_data in enumerate(structured_output["rows"]):
+            print(f"Row {row_idx + 1}: {row_data}")
+        if structured_output.get("message"):
+            print(f"Note: {structured_output['message']}")
+    elif structured_output["type"] == "paragraphs":
+        print("Detected Paragraphs:")
+        for para in structured_output["data"]:
+            print(f"- {para}")
+
+    # --- Test with primarily non-tabular data ---
+    dummy_ocr_paragraph_results = [
+        ([[10, 20], [100, 20], [100, 40], [10, 40]], "This is the first", 0.9),
+        ([[110, 21], [250, 21], [250, 41], [110, 41]], "sentence of a paragraph.", 0.88),
+        ([[10, 50], [150, 50], [150, 70], [10, 70]], "It continues on the next", 0.92),
+        ([[160, 52], [220, 52], [220, 72], [160, 72]], "visual line.", 0.91),
+    ]
+    print("\n--- Testing with paragraph data ---")
+    grouped_lines_p = group_results_by_line(dummy_ocr_paragraph_results, y_tolerance=8)
+    structured_output_p = detect_table_structure_from_lines(grouped_lines_p)
+    if structured_output_p["type"] == "paragraphs":
+        print("Detected Paragraphs:")
+        for para in structured_output_p["data"]:
+            print(f"- {para}")
+    else:
+        print("Incorrectly detected table for paragraph data.")
