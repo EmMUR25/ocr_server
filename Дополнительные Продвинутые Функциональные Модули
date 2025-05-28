@@ -1,0 +1,127 @@
+# pip install reportlab python-docx fpdf2
+import os
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont # Для поддержки кириллицы в PDF
+from docx import Document
+from io import BytesIO # Для работы с файлами в памяти
+
+# Важно: Убедитесь, что у вас есть шрифт, поддерживающий кириллицу (например, DejaVuSans)
+# TTF_FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf' # Пример пути для Linux
+# if os.path.exists(TTF_FONT_PATH):
+#     pdfmetrics.registerFont(TTFont('DejaVuSans', TTF_FONT_PATH))
+#     DEFAULT_PDF_FONT = 'DejaVuSans'
+# else:
+#     print("ПРЕДУПРЕЖДЕНИЕ: Шрифт DejaVuSans не найден, кириллица в PDF может отображаться некорректно.")
+#     DEFAULT_PDF_FONT = 'Helvetica' # Стандартный шрифт, может не поддерживать кириллицу
+
+# --- Используем FPDF2 для лучшей поддержки UTF-8 по умолчанию ---
+from fpdf import FPDF
+
+def export_text_to_searchable_pdf(image_path, ocr_text, output_filename="result.pdf"):
+    """
+    Создает PDF-файл с возможностью поиска.
+    Изображение добавляется как фон, а распознанный текст накладывается невидимым слоем.
+    (Эта функция требует более сложной реализации для точного позиционирования текста,
+    здесь представлен упрощенный вариант с текстом на отдельной странице или под изображением)
+    
+    Для простоты, этот пример просто вставит изображение и добавит текст после него.
+    Для настоящего "searchable PDF" (текст поверх картинки) нужны координаты слов от OCR.
+    """
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        
+        # Добавление изображения (если требуется)
+        # pdf.image(image_path, x=10, y=8, w=pdf.w - 20) # Может потребоваться Pillow
+        # pdf.ln(80) # Пропуск строки после изображения (примерно)
+
+        # Добавление кириллического шрифта
+        # Убедитесь, что файл шрифта .ttf доступен
+        # Например, NotoSans-Regular.ttf (скачайте и укажите путь)
+        try:
+            pdf.add_font('DejaVu', '', 'DejaVuSans.ttf', uni=True) # Укажите правильный путь к файлу шрифта
+            pdf.set_font('DejaVu', '', 12)
+        except RuntimeError:
+            print("ПРЕДУПРЕЖДЕНИЕ: Шрифт DejaVuSans.ttf не найден. Используется стандартный шрифт Arial.")
+            pdf.set_font('Arial', '', 12) # Запасной вариант
+
+        # Запись текста в PDF
+        for line in ocr_text.split('\n'):
+            pdf.write(8, line) # pdf.multi_cell(0, 10, line) для автоматического переноса
+            pdf.ln() # Новая строка
+
+        pdf_bytes = pdf.output(dest='S').encode('latin-1') # 'S' возвращает результат как байтовую строку
+        return pdf_bytes, output_filename
+    except Exception as e:
+        print(f"Ошибка при создании PDF: {e}")
+        return None, None
+
+
+def export_text_to_docx(ocr_text, output_filename="result.docx"):
+    """
+    Экспортирует распознанный текст в файл формата DOCX.
+    """
+    try:
+        document = Document()
+        # Можно добавить параграфы, заголовки и т.д.
+        # Для сохранения переносов строк, добавляем каждый абзац отдельно
+        for paragraph_text in ocr_text.split('\n'):
+            document.add_paragraph(paragraph_text)
+        
+        # Сохранение в байтовый поток для передачи через HTTP
+        file_stream = BytesIO()
+        document.save(file_stream)
+        file_stream.seek(0) # Перемещаем указатель в начало файла
+        return file_stream.getvalue(), output_filename
+    except Exception as e:
+        print(f"Ошибка при создании DOCX: {e}")
+        return None, None
+
+# Пример использования (внутри вашего HTTP-обработчика)
+if __name__ == '__main__':
+    # Предположим, это текст, полученный от EasyOCR
+    sample_ocr_text = "Пример текста для экспорта.\nЭто новая строка с кириллицей.\nИ еще одна строка."
+    dummy_image_path = "dummy_image_for_pdf.png" # Заглушка, в реальном приложении будет путь к изображению
+
+    # Создаем пустой файл-заглушку для демонстрации
+    with open(dummy_image_path, "w") as f:
+        f.write("Это изображение-заглушка")
+
+    # Экспорт в PDF
+    print("Генерация PDF...")
+    # Для демонстрации шрифта создайте файл DejaVuSans.ttf или укажите существующий
+    # Если шрифта нет, FPDF может выдать ошибку или использовать запасной вариант
+    if not os.path.exists("DejaVuSans.ttf"):
+         print("ПРЕДУПРЕЖДЕНИЕ: Файл шрифта DejaVuSans.ttf не найден в текущей директории. PDF может быть некорректным.")
+         # Попытка создать пустой файл, чтобы код не падал, но PDF будет без кириллицы, если Arial не поддерживает
+         # В реальном приложении шрифт должен быть предоставлен
+         with open("DejaVuSans.ttf", "w") as f_font: f_font.write("")
+
+
+    pdf_data, pdf_filename = export_text_to_searchable_pdf(dummy_image_path, sample_ocr_text, "exported_document.pdf")
+    if pdf_data:
+        with open(pdf_filename, "wb") as f:
+            f.write(pdf_data)
+        print(f"PDF файл '{pdf_filename}' успешно создан.")
+    else:
+        print("Не удалось создать PDF файл.")
+
+    # Экспорт в DOCX
+    print("\nГенерация DOCX...")
+    docx_data, docx_filename = export_text_to_docx(sample_ocr_text, "exported_document.docx")
+    if docx_data:
+        with open(docx_filename, "wb") as f:
+            f.write(docx_data)
+        print(f"DOCX файл '{docx_filename}' успешно создан.")
+    else:
+        print("Не удалось создать DOCX файл.")
+
+    # Очистка
+    if os.path.exists(dummy_image_path):
+        os.remove(dummy_image_path)
+    if os.path.exists("DejaVuSans.ttf"): # Удаление временного файла шрифта, если он был создан как заглушка
+        # Проверяем, был ли он действительно пустым, чтобы не удалить настоящий шрифт, если он там был
+        if os.path.getsize("DejaVuSans.ttf") == 0:
+             os.remove("DejaVuSans.ttf")
