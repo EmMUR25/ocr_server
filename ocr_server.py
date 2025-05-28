@@ -1,21 +1,52 @@
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import easyocr
+import cv2
+import numpy as np
+import cgi
+import json
 
-# 1. Настройки
-IMAGE_PATH = input('Введите путь к файлу')  # Путь к вашему PNG-файлу
-OUTPUT_TXT = "output.txt"  # Файл для сохранения результата
-LANGUAGES = ["ru", "en"]  # Языки распознавания
+reader = easyocr.Reader(['ru', 'en'])
 
-# 2. Инициализация EasyOCR
-reader = easyocr.Reader(LANGUAGES)
+class RequestHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        if self.path == '/ocr':
+            form = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ={'REQUEST_METHOD': 'POST'}
+            )
+            file_item = form['image']
+            image_data = file_item.file.read()
+            
+            image = cv2.imdecode(np.frombuffer(image_data, np.uint8), cv2.IMREAD_COLOR)
+            
+            results = reader.readtext(image, detail=1, paragraph=False)
+            output_text = " ".join([text for (_, text, _) in results])
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({'text': output_text}).encode())
+            
+        else:
+            self.send_error(404)
 
-# 3. Распознавание текста
-result = reader.readtext(IMAGE_PATH, detail=0,paragraph = True)
-text = " ".join(result)  # Объединяем строки через перенос
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            with open('index.html', 'rb') as f:
+                self.wfile.write(f.read())
+        else:
+            self.send_error(404)
 
-# 4. Сохранение в файл
-with open(OUTPUT_TXT, "w", encoding="utf-8") as f:
-    f.write(text)
+def run(server_class=HTTPServer, handler_class=RequestHandler, port=8000):
+    server_address = ('', port)
+    httpd = server_class(server_address, handler_class)
+    print(f'Сервер запущен на http://localhost:{port}')
+    httpd.serve_forever()
 
-print(f"Текст успешно сохранён в файл: {OUTPUT_TXT}")
-print("Распознанный текст:")
-print(text)
+if __name__ == '__main__':
+    run()
