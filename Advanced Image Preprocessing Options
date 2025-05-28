@@ -1,0 +1,131 @@
+import cv2
+import numpy as np
+import os
+# from scipy.ndimage import interpolation as inter # For a more advanced deskewing
+
+def preprocess_image(image_path, options=None):
+    """
+    Applies various preprocessing techniques to an image.
+    options: A dictionary like {'binarize': True, 'deskew': True, 'denoise': 'median'}
+    Returns the path to the processed image (or the modified image object).
+    """
+    if options is None:
+        options = {}
+
+    try:
+        img = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError(f"Could not read image from {image_path}")
+    except Exception as e:
+        print(f"Error loading image for preprocessing: {e}")
+        return image_path # Return original path if loading fails
+
+    processed_img = img.copy()
+
+    # 1. Convert to Grayscale (common base for many operations)
+    gray = cv2.cvtColor(processed_img, cv2.COLOR_BGR2GRAY)
+
+    # 2. Binarization (e.g., Otsu's method)
+    if options.get('binarize'):
+        _, gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        processed_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR) # Convert back for consistency if needed or keep gray
+
+    # 3. Noise Reduction
+    denoise_method = options.get('denoise')
+    if denoise_method:
+        current_img_for_denoise = gray if len(gray.shape) == 2 else cv2.cvtColor(processed_img, cv2.COLOR_BGR2GRAY)
+        if denoise_method == 'gaussian':
+            denoised = cv2.GaussianBlur(current_img_for_denoise, (5, 5), 0)
+        elif denoise_method == 'median':
+            denoised = cv2.medianBlur(current_img_for_denoise, 5)
+        # Add more methods like NLM (Non-Local Means) if desired
+        # denoised = cv2.fastNlMeansDenoising(current_img_for_denoise, None, h=10, templateWindowSize=7, searchWindowSize=21)
+        else: # Default to median
+            denoised = cv2.medianBlur(current_img_for_denoise, 3)
+        gray = denoised # Update gray as it's often used for subsequent steps
+        processed_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+
+    # 4. Deskewing (Simple example using moments, more advanced methods exist)
+    if options.get('deskew'):
+        # Deskewing typically works best on binary images
+        if not options.get('binarize'): # Ensure binary image for this simple deskew
+            _, binary_for_deskew = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        else:
+            binary_for_deskew = cv2.bitwise_not(gray) # Invert if already binarized (white text on black)
+
+        coords = np.column_stack(np.where(binary_for_deskew > 0))
+        if coords.size > 0:
+            angle = cv2.minAreaRect(coords)[-1] # Angle from minAreaRect
+            if angle < -45:
+                angle = -(90 + angle)
+            else:
+                angle = -angle
+
+            if abs(angle) > 1: # Only rotate if significant skew
+                (h, w) = processed_img.shape[:2]
+                center = (w // 2, h // 2)
+                M = cv2.getRotationMatrix2D(center, angle, 1.0)
+                # Rotate the original color image or the latest processed_img
+                rotated = cv2.warpAffine(processed_img, M, (w, h),
+                                         flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                processed_img = rotated
+                # Update gray scale version if further processing depends on it
+                gray = cv2.cvtColor(processed_img, cv2.COLOR_BGR2GRAY)
+
+
+    # 5. Contrast Adjustment (CLAHE) - Apply to grayscale
+    if options.get('contrast_enhance'):
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced_gray = clahe.apply(gray)
+        processed_img = cv2.cvtColor(enhanced_gray, cv2.COLOR_GRAY2BGR)
+        gray = enhanced_gray
+
+
+    # Save the processed image to a new temporary file or overwrite
+    # For this example, let's assume we create a new file
+    base, ext = os.path.splitext(image_path)
+    processed_image_path = f"{base}_processed{ext}"
+    try:
+        cv2.imwrite(processed_image_path, processed_img)
+        return processed_image_path
+    except Exception as e:
+        print(f"Error saving processed image: {e}")
+        return image_path # Return original if saving fails
+
+
+# Example Usage (called before passing to OCR)
+if __name__ == '__main__':
+    # Create a dummy image for testing
+    dummy_image_name = "temp_test_image.png"
+    dummy_img_array = np.zeros((100, 300, 3), dtype=np.uint8) # Black image
+    cv2.putText(dummy_img_array, "Test Text", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+    # Simulate skew by rotating
+    M_skew = cv2.getRotationMatrix2D((150, 50), 10, 1) # 10 degree skew
+    skewed_dummy_img = cv2.warpAffine(dummy_img_array, M_skew, (300, 100), borderValue=(0,0,0))
+    cv2.imwrite(dummy_image_name, skewed_dummy_img)
+
+    print(f"Created dummy image: {dummy_image_name}")
+
+    preprocessing_options = {
+        'binarize': True,
+        'denoise': 'median', # or 'gaussian'
+        'deskew': True,
+        'contrast_enhance': True
+    }
+    
+    # Process the image
+    # In a real app, image_path would be the path to an uploaded file
+    processed_path = preprocess_image(dummy_image_name, preprocessing_options)
+    print(f"Original image: {dummy_image_name}")
+    print(f"Processed image saved to: {processed_path}")
+
+    # Now, `processed_path` would be sent to your EasyOCR function
+    # result_text = your_ocr_function(processed_path)
+    # print(f"OCR Result from processed image: {result_text}")
+
+    # Clean up
+    if os.path.exists(dummy_image_name):
+        os.remove(dummy_image_name)
+    if os.path.exists(processed_path) and processed_path != dummy_image_name:
+        os.remove(processed_path)
