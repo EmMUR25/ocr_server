@@ -1,0 +1,190 @@
+import easyocr
+# pip install langdetect (для определения языка по тексту)
+from langdetect import detect, detect_langs, LangDetectException
+import os
+
+# Список всех языков, поддерживаемых EasyOCR (можно получить с их GitHub или документации)
+# Это примерный список, его нужно актуализировать
+SUPPORTED_EASYOCR_LANGUAGES = [
+    'abq', 'ady', 'af', 'ang', 'ar', 'as', 'ava', 'az', 'be', 'bg', 'bh', 'bho', 'bn', 'bs', 'ca', 'ceb', 'cs', 'ch_sim', 'ch_tra',
+    'che', 'cy', 'cv', 'da', 'dar', 'de', 'en', 'es', 'et', 'fa', 'fr', 'ga', 'gom', 'hi', 'hr', 'hu', 'id', 'inh', 'is', 'it',
+    'ja', 'kbd', 'kn', 'ko', 'ku', 'la', 'lbe', 'lez', 'lt', 'lv', 'mai', 'mg', 'mi', 'mn', 'mr', 'ms', 'mt', 'ne', 'new', 'nl',
+    'no', 'oc', 'pi', 'pl', 'pt', 'ro', 'ru', 'rs_cyrillic', 'rs_latin', 'sck', 'sk', 'sl', 'sq', 'sv', 'sw', 'ta', 'tab', 'te',
+    'th', 'tjk', 'tl', 'tr', 'ug', 'uk', 'ur', 'uz', 'vi'
+] # и другие... полный список см. в документации EasyOCR
+
+# Глобальные ридеры для разных языковых комбинаций (могут быть созданы по требованию)
+# Это может потреблять много памяти, если создавать ридеры для всех языков сразу.
+# Лучше создавать их динамически или иметь один общий ['ru', 'en'] и отдельный для автодетекции.
+ocr_readers_cache = {} 
+
+def get_easyocr_reader(lang_list=['ru', 'en']):
+    """
+    Получает или создает экземпляр easyocr.Reader для указанных языков.
+    Кэширует ридеры, чтобы не инициализировать их каждый раз.
+    """
+    lang_key = tuple(sorted(lang_list)) # Ключ для кэша
+    if lang_key not in ocr_readers_cache:
+        print(f"Инициализация EasyOCR ридера для языков: {lang_list}")
+        try:
+            ocr_readers_cache[lang_key] = easyocr.Reader(lang_list)
+        except Exception as e:
+            print(f"Ошибка инициализации EasyOCR для {lang_list}: {e}")
+            # Вернуть ридер по умолчанию или None
+            default_key = tuple(sorted(['ru', 'en']))
+            if default_key in ocr_readers_cache:
+                return ocr_readers_cache[default_key]
+            try:
+                ocr_readers_cache[default_key] = easyocr.Reader(['ru', 'en'])
+                return ocr_readers_cache[default_key]
+            except Exception as e_default:
+                 print(f"Критическая ошибка: не удалось инициализировать EasyOCR даже для ru/en: {e_default}")
+                 return None
+    return ocr_readers_cache[lang_key]
+
+
+def ocr_with_language_selection(image_path, selected_languages=None):
+    """
+    Распознает текст, используя выбранные языки или пытаясь их определить.
+    selected_languages: список кодов языков (например, ['en', 'fr']) или None для автоопределения.
+    """
+    detected_langs_for_ocr = ['ru', 'en'] # По умолчанию
+
+    if selected_languages: # Пользователь указал языки
+        # Проверяем, поддерживаются ли они (упрощенная проверка)
+        valid_selected_langs = [lang for lang in selected_languages if lang in SUPPORTED_EASYOCR_LANGUAGES]
+        if valid_selected_langs:
+            detected_langs_for_ocr = valid_selected_langs
+        else:
+            print("Предупреждение: выбранные языки не поддерживаются или не указаны, используются ru/en.")
+            # Остаемся с ['ru', 'en']
+    else: # Попытка автоопределения языка (после первого прохода OCR)
+        print("Автоопределение языка (попытка)...")
+        # 1. Сначала распознаем с базовым набором (например, ru, en) или очень общим (latin, cyrillic)
+        #    EasyOCR не имеет "общей" модели для всех скриптов сразу без указания языков.
+        #    Для автодетекции языка текста *после* OCR:
+        initial_reader = get_easyocr_reader(['ru', 'en']) # или более широкий, если есть смысл
+        if not initial_reader:
+            return "Ошибка: Базовый OCR ридер не доступен.", ['ru', 'en']
+
+        initial_result = initial_reader.readtext(image_path, detail=0, paragraph=True)
+        sample_text_for_detection = " ".join(initial_result[:5]) # Берем первые 5 строк для анализа
+
+        if sample_text_for_detection.strip():
+            try:
+                # langdetect может выдавать разные результаты для коротких текстов.
+                # detected_main_lang_code = detect(sample_text_for_detection)
+                lang_probabilities = detect_langs(sample_text_for_detection)
+                print(f"Langdetect вероятности: {lang_probabilities}")
+
+                # Выбираем языки с высокой вероятностью, которые есть в EasyOCR
+                # Это очень упрощенная логика.
+                potential_ocr_langs = []
+                for lang_prob in lang_probabilities:
+                    lang_code = lang_prob.lang
+                    # Преобразование кодов langdetect (например, 'zh-cn') в коды EasyOCR ('ch_sim')
+                    if lang_code == 'zh-cn': lang_code = 'ch_sim'
+                    elif lang_code == 'zh-tw': lang_code = 'ch_tra'
+                    # ... другие преобразования, если нужны
+                    
+                    if lang_code in SUPPORTED_EASYOCR_LANGUAGES and lang_code not in potential_ocr_langs:
+                        if lang_prob.prob > 0.6: # Порог уверенности
+                             potential_ocr_langs.append(lang_code)
+                
+                if potential_ocr_langs:
+                    # Добавляем английский, т.к. он часто встречается или используется для цифр/символов
+                    if 'en' not in potential_ocr_langs:
+                        potential_ocr_langs.append('en')
+                    detected_langs_for_ocr = list(set(potential_ocr_langs)) # Уникальные языки
+                else: # Если ничего не определилось с уверенностью, оставляем стандартные
+                    print("Не удалось уверенно определить язык, используются ru/en.")
+                    detected_langs_for_ocr = ['ru', 'en']
+
+            except LangDetectException:
+                print("Ошибка langdetect: Не удалось определить язык, используются ru/en.")
+                detected_langs_for_ocr = ['ru', 'en']
+            except Exception as e_detect:
+                print(f"Неизвестная ошибка при определении языка: {e_detect}, используются ru/en.")
+                detected_langs_for_ocr = ['ru', 'en']
+        else:
+            print("Нет текста для определения языка, используются ru/en.")
+            detected_langs_for_ocr = ['ru', 'en']
+    
+    print(f"Финальный набор языков для OCR: {detected_langs_for_ocr}")
+    final_reader = get_easyocr_reader(detected_langs_for_ocr)
+    if not final_reader:
+         return "Ошибка: OCR ридер для выбранных/определенных языков не доступен.", detected_langs_for_ocr
+
+    final_ocr_result = final_reader.readtext(image_path, detail=0, paragraph=True)
+    extracted_text = "\n".join(final_ocr_result)
+    
+    return extracted_text, detected_langs_for_ocr
+
+
+# Пример использования
+if __name__ == '__main__':
+    # Создадим фиктивное изображение (просто для передачи пути)
+    dummy_lang_test_image_path = "dummy_lang_image.png"
+    with open(dummy_lang_test_image_path, "w") as f:
+        f.write("dummy content for language test") # Содержимое не важно для этого примера без реального OCR
+    print(f"Создано тестовое изображение: {dummy_lang_test_image_path}")
+
+    print("\n--- Тест с выбором пользователя (например, французский) ---")
+    # Для этого теста EasyOCR должен будет скачать модели для 'fr', если их нет
+    # text_fr, langs_fr = ocr_with_language_selection(dummy_lang_test_image_path, selected_languages=['fr'])
+    # print(f"Распознанный текст (с 'fr'): '{text_fr[:50]}...' Языки: {langs_fr}")
+    print("(Пропущено из-за необходимости загрузки моделей 'fr' для простого запуска примера)")
+
+
+    print("\n--- Тест с автоопределением (имитация) ---")
+    # В этом примере langdetect будет анализировать "dummy content..." и, вероятно, определит 'en'
+    # Реальный EasyOCR вызов закомментирован, чтобы избежать загрузки моделей при каждом запуске
+    # Замените `initial_reader.readtext` и `final_reader.readtext` на имитацию, если EasyOCR не настроен полностью
+    
+    # --- Начало имитации для автоопределения ---
+    def mock_readtext_for_lang_detect(image_path, detail=0, paragraph=True):
+        if "lang_image" in image_path: # Имитация для нашего файла
+             # Возвращаем текст, по которому langdetect сможет что-то определить
+            return ["Это русский текст для примера.", "И немного English text."]
+        return ["Some default text"]
+
+    # Подменяем методы EasyOCR ридеров (только для этого __main__ блока)
+    original_get_reader = get_easyocr_reader
+    def mock_get_easyocr_reader_for_lang(lang_list=['ru','en']):
+        class MockReader:
+            def readtext(self, img_path, detail=0, paragraph=True):
+                return mock_readtext_for_lang_detect(img_path, detail, paragraph)
+        # print(f"(Мок) Инициализация EasyOCR ридера для языков: {lang_list}")
+        return MockReader()
+    
+    # __main__.__builtins__['get_easyocr_reader'] = mock_get_easyocr_reader_for_lang # Глобальная подмена для этого блока
+    # Это плохая практика, лучше передавать mock функцию явно, если возможно.
+    # Для теста здесь, временно переопределим глобальную ссылку, если она используется внутри ocr_with_language_selection
+    # В реальном коде ocr_readers_cache будет использовать настоящие ридеры.
+    # Поскольку get_easyocr_reader вызывается внутри ocr_with_language_selection,
+    # мы не можем легко подменить его без изменения сигнатуры ocr_with_language_selection
+    # или более сложного мокинга.
+    
+    # Для чистоты примера, предположим, что текст уже как-то получен для langdetect.
+    
+    # Эта часть с автоопределением требует, чтобы EasyOCR реально отработал первый раз.
+    # Для изолированного теста langdetect:
+    sample_text_for_langdetect = "Это русский текст для примера. И немного English text."
+    try:
+        detected_main_lang = detect(sample_text_for_langdetect)
+        detected_langs_probs = detect_langs(sample_text_for_langdetect)
+        print(f"Langdetect определил основной язык как: '{detected_main_lang}'")
+        print(f"Langdetect вероятности: {detected_langs_probs}")
+        # Дальнейшая логика выбора языков для EasyOCR пойдет отсюда.
+        # detected_langs_for_ocr = [detected_main_lang, 'en'] # Например
+    except LangDetectException as e:
+        print(f"Ошибка Langdetect: {e}")
+    
+    # text_auto, langs_auto = ocr_with_language_selection(dummy_lang_test_image_path, selected_languages=None)
+    # print(f"Распознанный текст (авто): '{text_auto[:50]}...' Языки: {langs_auto}")
+    # --- Конец имитации для автоопределения ---
+    print("(Часть с автоопределением требует реального запуска EasyOCR или более глубокого мокинга)")
+
+
+    if os.path.exists(dummy_lang_test_image_path):
+        os.remove(dummy_lang_test_image_path)
