@@ -1,0 +1,152 @@
+import time
+import os
+from concurrent.futures import ThreadPoolExecutor
+import uuid # For unique task IDs
+
+# --- Existing EasyOCR setup (from your "Инструкция запуска и пример кода.txt") ---
+# import easyocr
+# try:
+#     reader = easyocr.Reader(['ru', 'en']) # Initialize once
+# except Exception as e:
+#     print(f"Error initializing EasyOCR: {e}")
+#     reader = None
+# --- End Existing EasyOCR setup ---
+
+# In-memory store for task status (for simplicity; use Redis or a DB for production)
+tasks_status = {}
+MAX_WORKERS = 3 # Limit concurrent OCR processes
+executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+
+def process_single_image_ocr(image_path, task_id):
+    """
+    Simulates OCR processing for a single image.
+    Replace with your actual EasyOCR logic.
+    """
+    if reader is None: # Check if EasyOCR initialized
+        tasks_status[task_id]['status'] = 'error'
+        tasks_status[task_id]['result'] = 'OCR engine not available.'
+        return "OCR engine not available."
+
+    tasks_status[task_id]['status'] = 'processing'
+    try:
+        # --- Replace with actual EasyOCR processing ---
+        # Example:
+        # if not os.path.exists(image_path):
+        #     raise FileNotFoundError(f"Image file not found: {image_path}")
+        # result = reader.readtext(image_path)
+        # extracted_text = "\n".join([item[1] for item in result])
+        # --- Simulated processing ---
+        print(f"Task {task_id}: Processing {image_path}...")
+        time.sleep(5 + len(image_path) % 5) # Simulate work
+        extracted_text = f"Text from {os.path.basename(image_path)}"
+        if not extracted_text:
+             extracted_text = "No text found or error during OCR."
+        # --- End simulation ---
+
+        tasks_status[task_id]['status'] = 'completed'
+        tasks_status[task_id]['result'] = extracted_text
+        # Optionally, save the result to a file here
+        # with open(f"{task_id}_result.txt", "w", encoding="utf-8") as f:
+        #     f.write(extracted_text)
+        return extracted_text
+    except Exception as e:
+        print(f"Error processing {image_path} for task {task_id}: {e}")
+        tasks_status[task_id]['status'] = 'error'
+        tasks_status[task_id]['result'] = str(e)
+        return str(e)
+
+def submit_batch_processing_task(image_paths):
+    """
+    Submits a batch of images for OCR processing.
+    image_paths: A list of file paths to the uploaded images.
+    """
+    batch_id = str(uuid.uuid4())
+    tasks_status[batch_id] = {'status': 'pending', 'files': {}}
+    submitted_task_ids = []
+
+    for image_path in image_paths:
+        task_id = str(uuid.uuid4())
+        original_filename = os.path.basename(image_path)
+        tasks_status[batch_id]['files'][task_id] = {
+            'filename': original_filename,
+            'status': 'queued',
+            'result': None
+        }
+        # Update main tasks_status for individual file tracking if needed, or rely on batch_id.files
+        tasks_status[task_id] = tasks_status[batch_id]['files'][task_id] # Link for direct status update
+
+        # For actual file handling, you'd save uploaded files to a temp location
+        # and pass that path to process_single_image_ocr.
+        # Here, image_path is assumed to be accessible by the worker.
+        executor.submit(process_single_image_ocr, image_path, task_id)
+        submitted_task_ids.append(task_id)
+
+    tasks_status[batch_id]['status'] = 'processing'
+    tasks_status[batch_id]['task_ids'] = submitted_task_ids # Store individual task_ids within the batch
+    return batch_id # Return a batch ID to client for polling
+
+def get_batch_status(batch_id):
+    """
+    Retrieves the status of a batch processing task and its individual files.
+    """
+    batch_info = tasks_status.get(batch_id)
+    if not batch_info:
+        return None
+
+    # Update overall batch status based on individual files
+    all_completed = True
+    any_errors = False
+    for task_id in batch_info.get('task_ids', []):
+        file_status = tasks_status.get(task_id, {}).get('status')
+        if file_status not in ['completed', 'error']:
+            all_completed = False
+        if file_status == 'error':
+            any_errors = True
+
+    if all_completed:
+        batch_info['status'] = 'completed_with_errors' if any_errors else 'completed'
+    else:
+        batch_info['status'] = 'processing' # Or more granular if needed
+
+    return batch_info
+
+# Example usage (would be called from your web server handlers)
+if __name__ == '__main__':
+    # This is a mock example, replace with actual EasyOCR initialization and file paths
+    # Initialize EasyOCR globally or pass the reader instance
+    # Ensure 'reader' is initialized as shown in your EasyOCR setup
+    # For testing, let's create dummy files
+    if not os.path.exists("temp_uploads"):
+        os.makedirs("temp_uploads")
+    dummy_files = ["temp_uploads/image1.png", "temp_uploads/image2.jpg", "temp_uploads/document.pdf"]
+    for df in dummy_files:
+        with open(df, "w") as f: f.write("dummy_content") # Create dummy files
+
+    print("Submitting batch task...")
+    # In a real app, these paths would come from uploaded files saved temporarily
+    batch_task_id = submit_batch_processing_task(dummy_files)
+    print(f"Batch task ID: {batch_task_id}")
+
+    # Poll for status (in a web app, client would poll an endpoint)
+    for _ in range(20): # Poll for some time
+        status = get_batch_status(batch_task_id)
+        if status:
+            print(f"Batch Status: {status['status']}")
+            for task_id, file_info in status.get('files', {}).items():
+                print(f"  File: {file_info['filename']}, Status: {file_info['status']}, Result: {file_info.get('result', 'N/A')[:30]}...")
+            if status['status'].startswith('completed'):
+                break
+        else:
+            print("Batch ID not found.")
+            break
+        time.sleep(2)
+
+    # Clean up dummy files
+    for df in dummy_files:
+        if os.path.exists(df):
+            os.remove(df)
+        result_file = f"{[task_id for task_id, info in tasks_status[batch_task_id]['files'].items() if info['filename'] == os.path.basename(df)][0]}_result.txt"
+        if os.path.exists(result_file):
+            os.remove(result_file)
+    if os.path.exists("temp_uploads"):
+        os.rmdir("temp_uploads")

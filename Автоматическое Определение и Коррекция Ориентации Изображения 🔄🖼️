@@ -1,0 +1,182 @@
+import cv2
+import numpy as np
+import os
+# import easyocr # Предполагается, что reader уже инициализирован и доступен
+# Для более точного OSD можно использовать pytesseract, если он установлен:
+# import pytesseract
+# from pytesseract import Output
+
+# Глобальный ридер EasyOCR (предполагается, что он уже инициализирован)
+# reader = easyocr.Reader(['ru', 'en']) # ...и так далее
+
+def correct_image_orientation(image_path, ocr_reader_instance=None):
+    """
+    Пытается определить и скорректировать ориентацию изображения.
+    Возвращает путь к скорректированному (если требовалось) изображению.
+    ocr_reader_instance: Экземпляр EasyOCR ридера для эвристической оценки.
+    """
+    try:
+        img = cv2.imread(image_path)
+        if img is None:
+            print(f"Ошибка: Не удалось загрузить изображение из {image_path}")
+            return image_path
+
+        # --- Вариант 1: Использование pytesseract для OSD (если установлен) ---
+        # try:
+        #     osd_data = pytesseract.image_to_osd(image_path, output_type=Output.DICT)
+        #     rotation_angle = osd_data.get('rotate', 0)
+        #     print(f"Tesseract OSD определил угол поворота: {rotation_angle} градусов")
+        #     if rotation_angle != 0:
+        #         # Поворот изображения с помощью OpenCV
+        #         (h, w) = img.shape[:2]
+        #         center = (w // 2, h // 2)
+        #         # Tesseract возвращает угол, на который нужно повернуть ПО ЧАСОВОЙ стрелке
+        #         # OpenCV getRotationMatrix2D поворачивает ПРОТИВ ЧАСОВОЙ
+        #         # Поэтому, если Tesseract говорит 90, OpenCV должен делать -90 (или 270)
+        #         # Однако, osd.rotate обычно дает угол для коррекции.
+        #         # Если osd.rotate = 90, значит текст повернут на 90 против часовой, нужно повернуть на 90 по часовой.
+        #         # OpenCV поворачивает против часовой, поэтому используем -rotation_angle.
+        #         # Это нужно тщательно тестировать с выводами Tesseract.
+        #         # Часто Tesseract OSD дает ориентацию 0, 90, 180, 270, указывающую на текущую ориентацию текста.
+        #         # Если ориентация 90, значит текст читается снизу вверх, нужно повернуть на -90 (или 270).
+        #
+        #         # Пример: если osd_data['orientation'] == 90, это значит, что текст повернут на 90 градусов
+        #         # и его нужно повернуть обратно на -90 (или 270) для нормального чтения.
+        #         # Угол, который возвращает image_to_osd в поле 'rotate' - это угол, на который нужно повернуть изображение,
+        #         # чтобы текст стал горизонтальным и читаемым слева направо.
+        #         # Если rotate = 90, то нужно повернуть на 90 градусов. OpenCV вращает против часовой.
+        #         # Этот момент требует аккуратной проверки.
+        #
+        #         # Предположим, osd_data['rotate'] - это угол, на который нужно повернуть изображение ПРОТИВ ЧАСОВОЙ
+        #         # для коррекции.
+        #         M = cv2.getRotationMatrix2D(center, rotation_angle, 1.0)
+        #         corrected_img = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+        #         corrected_image_path = f"{os.path.splitext(image_path)[0]}_oriented.png"
+        #         cv2.imwrite(corrected_image_path, corrected_img)
+        #         print(f"Изображение скорректировано и сохранено как {corrected_image_path}")
+        #         return corrected_image_path
+        #     else:
+        #         print("Tesseract OSD: Коррекция ориентации не требуется.")
+        #         return image_path # Коррекция не требуется
+        # except Exception as e:
+        #     print(f"Ошибка при использовании Tesseract OSD: {e}. Попытка эвристики.")
+        # --- Конец варианта с Tesseract OSD ---
+
+
+        # --- Вариант 2: Эвристика на основе EasyOCR (упрощенная) ---
+        # Этот метод менее надежен и более затратен, т.к. требует запуска OCR несколько раз.
+        # EasyOCR сам по себе достаточно устойчив к небольшим поворотам.
+        # Для серьезных поворотов (90, 180, 270) можно попробовать следующее:
+        if ocr_reader_instance:
+            best_confidence_sum = -1
+            best_rotation = 0
+            temp_image_for_rotation = img.copy()
+
+            angles = [0, -90, -180, -270] # Против часовой стрелки для cv2.rotate
+            # cv2.ROTATE_90_COUNTERCLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_CLOCKWISE
+
+            for i, angle_enum in enumerate([None, cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_COUNTERCLOCKWISE]):
+                # Для угла 0 исходное изображение
+                if angle_enum is None: # 0 градусов
+                    rotated_img_for_test = temp_image_for_rotation
+                else:
+                    rotated_img_for_test = cv2.rotate(temp_image_for_rotation, angle_enum)
+
+                # Для передачи в EasyOCR сохраним во временный файл или передадим как numpy массив
+                # Это демонстрация, в реальном коде лучше передавать массив напрямую, если возможно
+                temp_rotated_path = "temp_rotated_check.png"
+                cv2.imwrite(temp_rotated_path, rotated_img_for_test)
+                
+                # result = ocr_reader_instance.readtext(temp_rotated_path, detail=1) # detail=1 для получения confidence
+                # current_confidence_sum = sum(item[2] for item in result if len(item) == 3)
+                
+                # --- Имитация OCR для примера ---
+                # Предположим, что чем больше "правильно" ориентированного текста, тем выше уверенность
+                if i == 0: current_confidence_sum = 5.5 # Исходное
+                elif i == 1: current_confidence_sum = 2.1 # Поворот на 90
+                elif i == 2: current_confidence_sum = 1.0 # Поворот на 180
+                else: current_confidence_sum = 0.5      # Поворот на 270
+                # --- Конец имитации ---
+
+                print(f"Тест поворота {angles[i]} градусов: суммарная уверенность = {current_confidence_sum}")
+
+                if current_confidence_sum > best_confidence_sum:
+                    best_confidence_sum = current_confidence_sum
+                    best_rotation = angles[i] # Запоминаем угол, который дал лучший результат
+
+                if os.path.exists(temp_rotated_path):
+                    os.remove(temp_rotated_path)
+            
+            print(f"Эвристика: Лучший угол поворота: {best_rotation} градусов (против часовой).")
+            if best_rotation != 0:
+                (h, w) = img.shape[:2]
+                center = (w // 2, h // 2)
+                M = cv2.getRotationMatrix2D(center, float(best_rotation), 1.0) # Угол для OpenCV
+                corrected_img = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                
+                corrected_image_path = f"{os.path.splitext(image_path)[0]}_oriented.png"
+                cv2.imwrite(corrected_image_path, corrected_img)
+                print(f"Изображение скорректировано эвристически и сохранено как {corrected_image_path}")
+                return corrected_image_path
+            else:
+                print("Эвристика: Коррекция ориентации не требуется.")
+                return image_path
+        else:
+            print("Экземпляр OCR ридера не предоставлен, эвристическая коррекция ориентации пропущена.")
+            return image_path
+
+    except Exception as e:
+        print(f"Ошибка при коррекции ориентации изображения: {e}")
+        return image_path # В случае ошибки возвращаем исходный путь
+
+# Пример использования
+if __name__ == '__main__':
+    # Создадим фиктивное повернутое изображение
+    base_img = np.zeros((200, 300, 3), dtype=np.uint8)
+    cv2.putText(base_img, "Test Text", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    
+    # Повернем его на 90 градусов по часовой (текст будет читаться сверху вниз)
+    rotated_90_cw = cv2.rotate(base_img, cv2.ROTATE_90_CLOCKWISE)
+    test_rotated_image_path = "dummy_rotated_image.png"
+    cv2.imwrite(test_rotated_image_path, rotated_90_cw)
+    print(f"Создано тестовое повернутое изображение: {test_rotated_image_path}")
+
+    # Инициализация EasyOCR ридера (замените на вашу реальную инициализацию)
+    # class MockEasyOCRReader: # Заглушка для EasyOCR
+    #     def readtext(self, path, detail=1):
+    #         # Имитация: возвращает более высокую уверенность для "правильно" ориентированного
+    #         # Это очень грубая имитация, реальный EasyOCR будет анализировать изображение
+    #         img_for_check = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    #         # Очень простая проверка: если ширина больше высоты, считаем "правильной" ориентацией
+    #         h, w = img_for_check.shape
+    #         if w > h + 20 : # Предполагаем, что текст горизонтальный
+    #             return [("Test", "Text", 0.9), ("Example", "Example", 0.85)]
+    #         elif h > w + 20: # Предполагаем, что текст вертикальный (повернут)
+    #             return [("T", "e", 0.5), ("s", "t", 0.4)]
+    #         else: # Квадратное или неопределенное
+    #             return [("T", "xt", 0.2)]
+
+    # mock_reader = MockEasyOCRReader()
+    # print("Запуск коррекции ориентации...")
+    # corrected_path = correct_image_orientation(test_rotated_image_path, ocr_reader_instance=mock_reader)
+    
+    # Так как реальный EasyOCR требует моделей, для CI/CD или простого запуска
+    # этот пример с эвристикой на EasyOCR может быть сложен.
+    # Покажем без вызова mock_reader для простоты, предполагая, что Tesseract OSD не используется.
+    corrected_path = correct_image_orientation(test_rotated_image_path, ocr_reader_instance=None)
+
+
+    if corrected_path != test_rotated_image_path:
+        print(f"Изображение было скорректировано. Новый путь: {corrected_path}")
+        # Здесь вы бы передали corrected_path в ваш основной OCR процесс
+        # display_img = cv2.imread(corrected_path)
+        # cv2.imshow("Corrected Image", display_img)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+        if os.path.exists(corrected_path) and corrected_path.endswith("_oriented.png"):
+             os.remove(corrected_path) # Очистка
+    else:
+        print("Коррекция ориентации не потребовалась или не удалась.")
+
+    if os.path.exists(test_rotated_image_path):
+        os.remove(test_rotated_image_path)

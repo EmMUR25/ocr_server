@@ -1,0 +1,101 @@
+from PIL import Image
+import os
+# import easyocr # Предполагается, что reader уже инициализирован
+
+# --- Существующая настройка EasyOCR (из вашего файла "Инструкция запуска и пример кода.txt") ---
+# try:
+#     reader = easyocr.Reader(['ru', 'en']) # Инициализировать один раз
+# except Exception as e:
+#     print(f"Ошибка инициализации EasyOCR: {e}")
+#     reader = None
+# --- Конец существующей настройки EasyOCR ---
+
+def ocr_from_selected_region(image_path, roi_coords):
+    """
+    Выполняет OCR на выбранной области изображения.
+    image_path: Путь к исходному изображению.
+    roi_coords: Словарь с координатами {'x': int, 'y': int, 'width': int, 'height': int}
+                Это координаты относительно оригинального размера изображения, отображаемого на фронтенде.
+                Важно: Если на фронтенде изображение масштабируется, координаты нужно привести к оригинальному размеру.
+    """
+    # if reader is None:
+    #     return "Ошибка: OCR движок не доступен."
+
+    try:
+        img = Image.open(image_path)
+        
+        # Координаты для обрезки в Pillow: (left, upper, right, lower)
+        x = int(roi_coords['x'])
+        y = int(roi_coords['y'])
+        width = int(roi_coords['width'])
+        height = int(roi_coords['height'])
+        
+        # Проверка корректности координат
+        if x < 0 or y < 0 or width <= 0 or height <= 0:
+            return "Ошибка: Некорректные координаты для обрезки."
+        if x + width > img.width or y + height > img.height:
+             # Можно либо обрезать по границам, либо вернуть ошибку
+             print(f"Предупреждение: Область ROI выходит за пределы изображения. Будет обрезано по границам.")
+             right = min(x + width, img.width)
+             lower = min(y + height, img.height)
+             cropped_img = img.crop((x, y, right, lower))
+        else:
+            cropped_img = img.crop((x, y, x + width, y + height))
+
+        # Сохраняем обрезанное изображение во временный файл или передаем как байтовый массив
+        # Для EasyOCR проще передать путь к файлу или numpy массив
+        temp_cropped_path = "temp_cropped_image_for_ocr.png" # Временное имя файла
+        cropped_img.save(temp_cropped_path)
+
+        # --- Замените на ваш реальный вызов EasyOCR ---
+        # result = reader.readtext(temp_cropped_path)
+        # extracted_text = "\n".join([item[1] for item in result])
+        # --- Имитация распознавания ---
+        extracted_text = f"Текст из области ({x},{y}, w:{width},h:{height}) изображения {os.path.basename(image_path)}"
+        if not extracted_text:
+            extracted_text = "Текст в выбранной области не найден или произошла ошибка."
+        # --- Конец имитации ---
+        
+        # Удаляем временный файл
+        if os.path.exists(temp_cropped_path):
+            os.remove(temp_cropped_path)
+            
+        return extracted_text
+
+    except FileNotFoundError:
+        return f"Ошибка: Файл изображения не найден по пути {image_path}"
+    except Exception as e:
+        print(f"Ошибка при OCR выбранной области: {e}")
+        return f"Ошибка обработки: {e}"
+
+# Пример использования (вызывается из HTTP-обработчика)
+if __name__ == '__main__':
+    # Создаем фиктивное изображение для теста
+    try:
+        img_test = Image.new('RGB', (600, 400), color = 'lightblue')
+        # Добавим какой-нибудь "текст" для наглядности, хотя OCR его не увидит без реального текста
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(img_test)
+        draw.rectangle((100, 100, 250, 150), fill="red")
+        draw.text((110,110), "ROI Text", fill="white")
+        test_image_path = "dummy_test_image_roi.png"
+        img_test.save(test_image_path)
+        print(f"Создано тестовое изображение: {test_image_path}")
+    except Exception as e:
+        print(f"Не удалось создать тестовое изображение: {e}. Убедитесь, что Pillow установлен.")
+        test_image_path = None
+
+
+    if test_image_path:
+        # Координаты ROI, полученные от фронтенда
+        # (например, пользователь выделил область на клиенте)
+        selected_roi = {'x': 100, 'y': 100, 'width': 150, 'height': 50}
+        
+        print(f"Распознавание текста из ROI: {selected_roi}")
+        # Убедитесь, что 'reader' (EasyOCR) инициализирован глобально или передан в функцию
+        text_from_roi = ocr_from_selected_region(test_image_path, selected_roi)
+        print(f"Распознанный текст из ROI:\n{text_from_roi}")
+
+        # Очистка
+        if os.path.exists(test_image_path):
+            os.remove(test_image_path)

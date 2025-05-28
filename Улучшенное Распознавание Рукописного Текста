@@ -1,0 +1,150 @@
+import easyocr
+import cv2 # Для предварительной обработки, если потребуется
+import numpy as np
+import os
+
+# Инициализация EasyOCR (должна быть глобальной или передаваться)
+# reader_ru_en = easyocr.Reader(['ru', 'en']) # Стандартный ридер
+# Для некоторых языков могут быть отдельные модели, которые лучше справляются с рукописным текстом,
+# но для рус/англ это обычно общая модель.
+
+# Глобальный ридер (инициализируется один раз)
+try:
+    # Параметры, которые могут повлиять на распознавание рукописного текста (экспериментально)
+    # recog_network: по умолчанию 'crnn', есть 'trocr', 'parseq', 'sar', 'svtr' - некоторые могут быть лучше для специфичных случаев
+    # detection_model: по умолчанию 'craft', можно попробовать 'db'
+    # handwritten_model: Специального параметра нет, но некоторые сети лучше для рукописного текста
+    reader_handwriting = easyocr.Reader(
+        ['ru', 'en'],
+        # model_storage_directory=os.path.join(os.path.expanduser('~'), '.EasyOCR', 'model'), # Пример указания папки моделей
+        # download_enabled=True,
+        # detector=True, # Использовать детектор текста
+        # recognizer=True, # Использовать распознаватель текста
+        # verbose=True, # Выводить больше информации
+        # gpu=False # Использовать CPU. True для GPU
+        # recog_network='parseq' # Пример использования другой сети для распознавания, нужно тестировать
+    )
+    print("EasyOCR ридер для рукописного текста инициализирован.")
+except Exception as e:
+    print(f"Ошибка инициализации EasyOCR для рукописного текста: {e}")
+    reader_handwriting = None
+
+
+def preprocess_for_handwriting(image_path):
+    """
+    Специализированная предварительная обработка для рукописного текста.
+    Возвращает путь к обработанному изображению или NumPy массив.
+    """
+    try:
+        img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise ValueError("Не удалось прочитать изображение.")
+
+        # 1. Увеличение контраста (CLAHE)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        img = clahe.apply(img)
+
+        # 2. Адаптивная бинаризация (хорошо для разных условий освещения)
+        img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                     cv2.THRESH_BINARY, 11, 2) # Параметры можно настраивать
+
+        # 3. Опционально: Удаление мелкого шума (морфологические операции)
+        # kernel = np.ones((1,1), np.uint8)
+        # img = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
+        
+        processed_path = f"{os.path.splitext(image_path)[0]}_handwriting_processed.png"
+        cv2.imwrite(processed_path, img)
+        return processed_path
+    except Exception as e:
+        print(f"Ошибка при предварительной обработке для рукописного текста: {e}")
+        return image_path # Вернуть оригинальный путь в случае ошибки
+
+
+def ocr_handwritten_text(image_path, use_preprocessing=True):
+    """
+    Выполняет OCR для рукописного текста, возможно с предварительной обработкой.
+    """
+    if reader_handwriting is None:
+        return "Ошибка: OCR движок для рукописного текста не доступен."
+
+    processed_image_path = image_path
+    if use_preprocessing:
+        print("Применение предварительной обработки для рукописного текста...")
+        processed_image_path = preprocess_for_handwriting(image_path)
+
+    try:
+        # Параметры readtext, которые могут быть полезны (экспериментально):
+        # detail=0 (только текст), contrast_ths, adjust_contrast, text_threshold, low_text, link_threshold, etc.
+        # width_ths: может помочь с разделением близко написанных символов.
+        # Для рукописного текста может быть полезно увеличить allowlist символов, если есть специфичные ожидания.
+        result = reader_handwriting.readtext(
+            processed_image_path,
+            detail=0, # Возвращает только список строк текста
+            paragraph=True, # Попытка сгруппировать текст в абзацы
+            # text_threshold=0.6, # Понизить порог уверенности для текста (если текст плохо виден)
+            # low_text=0.3,
+            # contrast_ths=0.2, # Попробовать настроить контраст
+            # adjust_contrast=0.6,
+            # width_ths=0.8 # Порог для объединения символов в слова
+            # Некоторые из этих параметров могут быть специфичны для детектора CRAFT
+            # и могут не работать или работать по-другому с детектором DB
+        )
+        
+        # Если detail=0 и paragraph=True, result - это список строк.
+        # Если paragraph=False (по умолчанию), result - список строк.
+        # Если detail=1, то это [(bbox, text, confidence), ...]
+        
+        # Для detail=0, paragraph=True:
+        extracted_text = "\n".join(result) if result else ""
+
+        # Если использовали paragraph=False (по умолчанию с detail=0):
+        # extracted_text = "\n".join(result)
+
+        if not extracted_text:
+            extracted_text = "Рукописный текст не найден или произошла ошибка при распознавании."
+        
+        return extracted_text
+    except Exception as e:
+        print(f"Ошибка при распознавании рукописного текста: {e}")
+        return f"Ошибка распознавания: {str(e)}"
+    finally:
+        # Удаляем временный обработанный файл, если он был создан и отличается от оригинала
+        if use_preprocessing and processed_image_path != image_path and os.path.exists(processed_image_path):
+            os.remove(processed_image_path)
+
+
+# Пример использования
+if __name__ == '__main__':
+    # Создадим простое фиктивное изображение с "рукописным" текстом
+    # В реальности это должно быть настоящее изображение с рукописным текстом
+    dummy_handwriting_img_path = "dummy_handwriting.png"
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        # Попробуем использовать какой-нибудь курсивный шрифт, если доступен
+        try:
+            # font = ImageFont.truetype("ariali.ttf", 40) # Пример курсивного Arial
+            font = ImageFont.truetype("DejaVuSans.ttf", 40) # или любой другой
+        except IOError:
+            font = ImageFont.load_default() # Стандартный шрифт
+            print("Курсивный шрифт не найден, используется стандартный.")
+
+        img = Image.new('RGB', (500, 150), color = (255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        draw.text((10, 10), "Пример рукописного\n текста для OCR", fill=(0,0,0), font=font)
+        img.save(dummy_handwriting_img_path)
+        print(f"Создано тестовое изображение для рукописного текста: {dummy_handwriting_img_path}")
+
+        recognized_text = ocr_handwritten_text(dummy_handwriting_img_path, use_preprocessing=True)
+        print("\nРаспознанный рукописный текст:")
+        print(recognized_text)
+
+    except ImportError:
+        print("Pillow не установлен. Не удалось создать тестовое изображение.")
+    except Exception as e:
+        print(f"Произошла ошибка в примере: {e}")
+    finally:
+        if os.path.exists(dummy_handwriting_img_path):
+            os.remove(dummy_handwriting_img_path)
+        # Очистка временного файла шрифта, если он был создан как заглушка в предыдущем примере
+        if os.path.exists("DejaVuSans.ttf") and os.path.getsize("DejaVuSans.ttf") == 0:
+            os.remove("DejaVuSans.ttf")
