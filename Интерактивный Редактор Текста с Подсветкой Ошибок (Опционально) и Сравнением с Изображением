@@ -1,0 +1,107 @@
+# На стороне бэкенда основной задачей будет передать изображение и распознанный текст.
+# Предположим, у вас есть функция ocr_image(image_path), возвращающая текст.
+
+# Для проверки орфографии можно использовать, например, pyenchant
+# pip install pyenchant
+# Также нужно установить словари, например, для русского: myspell-ru или hunspell-ru
+import enchant # Для проверки орфографии
+import os
+
+# Словарь для проверки орфографии (нужно установить словари в системе)
+try:
+    # Попытка загрузить русский и английский словари
+    dict_ru = enchant.Dict("ru_RU")
+    dict_en = enchant.Dict("en_US")
+    spell_checker_available = True
+    print("Словари для проверки орфографии загружены (ru_RU, en_US).")
+except enchant.errors.DictNotFoundError as e:
+    print(f"ПРЕДУПРЕЖДЕНИЕ: Словари для проверки орфографии не найдены ({e}). Проверка орфографии будет недоступна.")
+    dict_ru = None
+    dict_en = None
+    spell_checker_available = False
+
+def get_ocr_result_for_editor(image_path, recognized_text):
+    """
+    Подготавливает данные для передачи в интерактивный редактор.
+    Включает путь к изображению (или base64), распознанный текст и, возможно, информацию об ошибках.
+    """
+    image_url_for_client = f"/uploads/{os.path.basename(image_path)}" # Пример URL, если файлы доступны статически
+    # Или можно передать изображение как base64, но это увеличит объем ответа:
+    # import base64
+    # with open(image_path, "rb") as img_file:
+    #     b64_string = base64.b64encode(img_file.read()).decode()
+    # image_data_for_client = f"data:image/{os.path.splitext(image_path)[1].lstrip('.')};base64,{b64_string}"
+
+    misspelled_words = []
+    if spell_checker_available:
+        words = recognized_text.split() # Простое разделение по пробелам, можно улучшить
+        for word in words:
+            # Очистка слова от пунктуации (базовая)
+            cleaned_word = ''.join(filter(str.isalpha, word))
+            if not cleaned_word:
+                continue
+            
+            # Пытаемся определить язык или проверяем по обоим словарям
+            is_correct_ru = dict_ru.check(cleaned_word) if dict_ru else True
+            is_correct_en = dict_en.check(cleaned_word) if dict_en else True
+
+            # Если слово неверно в обоих (или в одном, если язык определен), считаем ошибкой
+            # Это упрощенная логика. Для смешанного текста сложнее.
+            if not is_correct_ru and not is_correct_en: # Если оба словаря доступны и оба говорят "нет"
+                suggestions_ru = dict_ru.suggest(cleaned_word) if dict_ru else []
+                suggestions_en = dict_en.suggest(cleaned_word) if dict_en else []
+                misspelled_words.append({
+                    "word": word, # Оригинальное слово с пунктуацией для поиска/замены
+                    "cleaned": cleaned_word,
+                    "suggestions_ru": suggestions_ru[:3], # Первые 3 варианта
+                    "suggestions_en": suggestions_en[:3]
+                })
+            elif dict_ru and not dict_en and not is_correct_ru: # Только русский словарь
+                 misspelled_words.append({
+                    "word": word, "cleaned": cleaned_word,
+                    "suggestions_ru": dict_ru.suggest(cleaned_word)[:3], "suggestions_en": []
+                })
+            elif dict_en and not dict_ru and not is_correct_en: # Только английский словарь
+                 misspelled_words.append({
+                    "word": word, "cleaned": cleaned_word,
+                    "suggestions_ru": [], "suggestions_en": dict_en.suggest(cleaned_word)[:3]
+                })
+
+
+    return {
+        "image_url": image_url_for_client, # Или "image_data": image_data_for_client
+        "ocr_text": recognized_text,
+        "misspelled_words": misspelled_words,
+        "spell_check_available": spell_checker_available
+    }
+
+# Пример использования (на бэкенде, после OCR)
+if __name__ == '__main__':
+    # Создаем фиктивный файл изображения (просто для имени)
+    dummy_editor_image_path = "temp_image_for_editor.png"
+    if not os.path.exists("uploads"): os.makedirs("uploads") # Папка для "статических" файлов
+    dummy_editor_image_path_in_uploads = os.path.join("uploads", os.path.basename(dummy_editor_image_path))
+
+    with open(dummy_editor_image_path_in_uploads, "w") as f:
+        f.write("dummy image content")
+    
+    sample_text_from_ocr = "Это пример текста с ашибками для проверки арфаграфии.\nThis is some Englist text with mistaks."
+    
+    editor_data = get_ocr_result_for_editor(dummy_editor_image_path_in_uploads, sample_text_from_ocr)
+    
+    print("Данные для редактора:")
+    print(f"  URL изображения: {editor_data['image_url']}")
+    print(f"  Распознанный текст: {editor_data['ocr_text']}")
+    print(f"  Проверка орфографии доступна: {editor_data['spell_check_available']}")
+    if editor_data['spell_check_available']:
+        print(f"  Найденные слова с ошибками ({len(editor_data['misspelled_words'])}):")
+        for item in editor_data['misspelled_words']:
+            print(f"    Слово: '{item['word']}' (очищенное: '{item['cleaned']}')")
+            if item['suggestions_ru']: print(f"      Русские варианты: {item['suggestions_ru']}")
+            if item['suggestions_en']: print(f"      Английские варианты: {item['suggestions_en']}")
+    
+    # Очистка
+    if os.path.exists(dummy_editor_image_path_in_uploads):
+        os.remove(dummy_editor_image_path_in_uploads)
+    if os.path.exists("uploads") and not os.listdir("uploads"):
+        os.rmdir("uploads")
