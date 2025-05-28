@@ -7,7 +7,7 @@
 ## Команда проекта  
 1. Мурзин Эмиль,  [@EmMUR25](https://github.com/EmMUR25)  
 2. Анастасия Галенчик, [@AnastasiaGalenchik](https://github.com/AnastasiaGalenchik)
-
+3. Жань Дунаоб ссыку
  
 [Техническое задание](TECHNICAL_SPECIFICATION.md)  
 
