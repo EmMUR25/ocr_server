@@ -44,3 +44,4 @@
 ## Команда  
 - Разработчик модели МО: Эмиль Мурзин [@EmMUR25](https://github.com/EmMUR25)
 - Разработчик Веб: Анастасия Галенчик [@AnastasiaGalenchik](https://github.com/AnastasiaGalenchik)
+- Разработчик бэкэнд: Жань Дунао https://github.com/BRONZTRING 
