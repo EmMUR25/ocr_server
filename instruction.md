@@ -2,7 +2,7 @@
 Установка (одна команда):
 
 pip install easyocr
-
+pip install python = 3.12
 Пример кода:
 ```python
 
