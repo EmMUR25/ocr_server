@@ -1,0 +1,46 @@
+Использование:
+Установка библиотек: Убедитесь, что у вас установлены pdf2image и Pillow.
+pip install pdf2image Pillow
+Также, pdf2image зависит от poppler. Следуйте инструкциям по установке poppler для вашей операционной системы.
+Интеграция в ocr_server.py:
+Импортируйте функцию в начале файла:
+from pdf_utils import convert_pdf_to_images_for_ocr
+В методе do_POST вашего RequestHandler, когда обрабатывается загрузка файла:
+# ... существующий код для получения file_item и image_data
+file_item = form['image']
+filename = file_item.filename # Получаем имя файла для проверки расширения/типа
+image_data = file_item.file.read()
+
+output_text_parts = []
+
+# Проверяем, является ли файл PDF
+# (можно также проверять content_type, если он надежно передается)
+if filename.lower().endswith('.pdf') or file_item.type == 'application/pdf':
+    ocr_images = convert_pdf_to_images_for_ocr(image_data)
+    if not ocr_images:
+        # Обработка ошибки конвертации PDF
+        # (код ответа сервера об ошибке) ...
+        self.send_response(500)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps({'error': 'Не удалось обработать PDF файл.'}).encode())
+        return
+
+    for img_cv in ocr_images:
+        # 'current_reader' должен быть вашим экземпляром easyocr.Reader
+        # (см. следующую функцию для динамической загрузки языков)
+        # Если используете старый глобальный reader: results = reader.readtext(img_cv, ...)
+        results = current_reader.readtext(img_cv, detail=1, paragraph=False) 
+        output_text_parts.append(" ".join([text for (_, text, _) in results]))
+
+    # Объединяем текст со всех страниц, например, с разделителем
+    output_text = "\n\n--- Новая страница ---\n\n".join(output_text_parts)
+else:
+    # Обработка обычных изображений (как было раньше)
+    image = cv2.imdecode(np.frombuffer(image_data, np.uint8), cv2.IMREAD_COLOR)
+    # 'current_reader' или 'reader'
+    results = current_reader.readtext(image, detail=1, paragraph=False) 
+    output_text = " ".join([text for (_, text, _) in results])
+
+# ... остальной код для отправки JSON ответа с output_text
