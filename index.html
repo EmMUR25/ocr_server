@@ -42,12 +42,76 @@
         const previewContainer = document.getElementById('previewContainer');
         const imagePreview = document.getElementById('imagePreview');
 
-          // Обработка клика по области загрузки
+        // Функция для отображения предпросмотра изображения
+        function showPreview(file) {
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                previewContainer.style.display = 'block';
+                imagePreview.src = e.target.result;
+            }
+            
+            if (file) {
+                if (file.type.match('image.*')) {
+                    reader.readAsDataURL(file);
+                } else if (file.type === 'application/pdf') {
+                    // Для PDF показываем иконку вместо предпросмотра
+                    previewContainer.style.display = 'block';
+                    imagePreview.src = 'https://cdn-icons-png.flaticon.com/512/337/337946.png';
+                    imagePreview.style.maxHeight = '150px';
+                }
+            }
+        }
+
+        // Обработка клика по области загрузки
         dropArea.addEventListener('click', () => {
             imageInput.click();
         });
 
-          // Обработка выбранного файла
+        // Обработка перетаскивания файлов
+        dropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropArea.style.backgroundColor = '#e8f4fc';
+            dropArea.style.borderColor = '#2980b9';
+        });
+
+        dropArea.addEventListener('dragleave', () => {
+            dropArea.style.backgroundColor = '#f8f9fa';
+            dropArea.style.borderColor = '#3498db';
+        });
+
+        dropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropArea.style.backgroundColor = '#f8f9fa';
+            dropArea.style.borderColor = '#3498db';
+            
+            if (e.dataTransfer.files.length) {
+                imageInput.files = e.dataTransfer.files;
+                showPreview(imageInput.files[0]);
+                processImage();
+            }
+        });
+
+        // Обработка вставки из буфера обмена
+        document.addEventListener('paste', (e) => {
+            const items = e.clipboardData.items;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    const blob = items[i].getAsFile();
+                    if (blob) {
+                        const file = new File([blob], 'pasted-image.png', { type: 'image/png' });
+                        const dataTransfer = new DataTransfer();
+                        dataTransfer.items.add(file);
+                        imageInput.files = dataTransfer.files;
+                        showPreview(file);
+                        processImage();
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Обработка выбранного файла
         imageInput.addEventListener('change', () => {
             if (imageInput.files && imageInput.files.length) {
                 showPreview(imageInput.files[0]);
