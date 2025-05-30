@@ -36,3 +36,22 @@
 ```bash
 pip install easyocr==1.7.2
 ```
+
+![image](https://github.com/user-attachments/assets/f5626ffb-4a6a-4fd8-93be-48a783881c4c)
+
+После этого запускаем скрипт
+
+```bash
+python ocr_server.py
+```
+
+![image](https://github.com/user-attachments/assets/d6f4cc9b-f48e-45af-a311-76e70a00f457)
+
+Далее открываем html файл и закидываем нужный файл
+
+![image](https://github.com/user-attachments/assets/642c301e-c4a5-4bf1-8b55-a398be5cdafd)
+
+Выход
+
+![image](https://github.com/user-attachments/assets/aa128497-d29b-4574-b0a3-f406d36115f4)
+
