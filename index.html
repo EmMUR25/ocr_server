@@ -35,5 +35,70 @@
 
     <div id="result"></div>
 
-<body>
+    <script>
+        const dropArea = document.getElementById('dropArea');
+        const imageInput = document.getElementById('imageInput');
+        const resultDiv = document.getElementById('result');
+        const previewContainer = document.getElementById('previewContainer');
+        const imagePreview = document.getElementById('imagePreview');
+
+          // Обработка клика по области загрузки
+        dropArea.addEventListener('click', () => {
+            imageInput.click();
+        });
+
+          // Обработка выбранного файла
+        imageInput.addEventListener('change', () => {
+            if (imageInput.files && imageInput.files.length) {
+                showPreview(imageInput.files[0]);
+                processImage();
+            }
+        });
+
+        async function processImage() {
+            const file = imageInput.files[0];
+            if (!file) return;
+
+            resultDiv.textContent = "Идёт распознавание...";
+            resultDiv.className = 'loading';
+
+            try {
+                const formData = new FormData();
+                formData.append('image', file);
+
+                const response = await fetch('http://localhost:8000/ocr', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Ошибка сервера: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (!data.text) {
+                    throw new Error('Сервер не вернул текст');
+                }
+                
+                resultDiv.textContent = data.text;
+                resultDiv.className = '';
+
+                // Автосохранение в файл
+                const blob = new Blob([data.text], { type: 'text/plain' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'result.txt';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+            } catch (error) {
+                resultDiv.textContent = "Ошибка: " + error.message;
+                resultDiv.className = 'error';
+                console.error('Ошибка при обработке изображения:', error);
+            }
+        }
+    </script>
+</body>
 </html>
